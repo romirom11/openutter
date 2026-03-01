@@ -1,6 +1,7 @@
 # OpenUtter
+<img width="1376" height="768" alt="Generated Image March 01, 2026 - 2_20PM (1)" src="https://github.com/user-attachments/assets/ce352f31-d381-450d-af6a-a01e57b13d6d" />
 
-A headless Google Meet bot that joins meetings via Playwright and captures live captions as a real-time transcript. Built as an [OpenClaw](https://github.com/AshishKapoor/openclaw) skill.
+A headless Google Meet bot that joins meetings via Playwright and captures live captions as a real-time transcript. Built as an [OpenClaw](https://github.com/openclaw/openclaw) skill.
 
 ## What it does
 
