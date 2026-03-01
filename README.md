@@ -142,6 +142,7 @@ Re-run `utter-auth.ts` to sign in again. The old session is overwritten automati
 **Host didn't admit the bot**
 In guest mode (`--anon`), the bot waits in the lobby for up to 10 minutes. Ask the host to admit your bot by name. For instant access, use `--auth` with a saved Google session.
 
+
 ## License
 
-MIT
+Distributed under the [MIT license](https://github.com/Mobilecn-UI/nativecn-ui/blob/main/LICENSE).
