@@ -1,148 +1,156 @@
 # OpenUtter
+
 <img width="1376" height="768" alt="Generated Image March 01, 2026 - 2_20PM (1)" src="https://github.com/user-attachments/assets/ce352f31-d381-450d-af6a-a01e57b13d6d" />
 
-A headless Google Meet bot that joins meetings via Playwright and captures live captions as a real-time transcript. Built as an [OpenClaw](https://github.com/openclaw/openclaw) skill.
+OpenUtter is a headless Google Meet bot for OpenClaw. It can join meetings,
+capture live captions into a transcript, and take on-demand screenshots.
 
-## What it does
+GitHub: https://github.com/sumansid/openutter
 
-1. Joins a Google Meet call as a guest or authenticated user (headless Chromium)
-2. Enables Google Meet's built-in live captions
-3. Captures captions in real-time via a DOM MutationObserver
-4. Writes a deduplicated, timestamped transcript to disk
-5. Supports on-demand screenshots of the meeting
-
-## Prerequisites
-
-- Node.js 18+
-- [Playwright](https://playwright.dev/) Chromium browser:
-  ```bash
-  npx playwright-core install chromium
-  ```
-
-## Quick start
-
-### Join a meeting as a guest
+## Install
 
 ```bash
-npx tsx skills/openutter/scripts/utter-join.ts https://meet.google.com/abc-defg-hij \
-  --anon --bot-name "My Bot"
+npx openutter
 ```
 
-The host will need to admit the bot from the lobby.
-
-### Join as an authenticated Google user
-
-First, save your Google session (one-time):
+This installs the OpenUtter skill into:
 
 ```bash
-npx tsx skills/openutter/scripts/utter-auth.ts
+~/.openclaw/skills/openutter
 ```
 
-This opens a browser window. Sign into Google, then press Enter. Your session is saved to `~/.openutter/auth.json`.
-
-Then join with `--auth` (no host admission needed):
+Then install Chromium once:
 
 ```bash
-npx tsx skills/openutter/scripts/utter-join.ts https://meet.google.com/abc-defg-hij --auth
+npx playwright-core install chromium
 ```
 
-## Scripts
+## Commands
 
-| Script                | Purpose                                               |
-| --------------------- | ----------------------------------------------------- |
-| `utter-join.ts`       | Join a Google Meet and capture captions               |
-| `utter-auth.ts`       | Save a Google account session for authenticated joins |
-| `utter-transcript.ts` | Print the latest transcript from a running session    |
-| `utter-screenshot.ts` | Take a screenshot of the current meeting view         |
-
-## Options
-
-```
-utter-join.ts <meet-url> --auth|--anon [options]
-
-Required (one of):
-  --auth                 Join using saved Google account (~/.openutter/auth.json)
-  --anon --bot-name <n>  Join as a guest with this display name
-
-Options:
-  --headed               Show the browser window (debugging)
-  --camera               Join with camera on (default: off)
-  --mic                  Join with mic on (default: off)
-  --duration <time>      Auto-leave after duration (e.g. 30m, 1h, 90s)
-  --channel <channel>    Messaging channel for status updates
-  --target <id>          Chat target ID for status updates
-  --verbose              Print captions to stdout as they're captured
+```bash
+npx openutter auth
+npx openutter join <meet-url> --auth
+npx openutter join <meet-url> --anon --bot-name "OpenUtter Bot"
+npx openutter join <meet-url> --auth --headed
+npx openutter transcript
+npx openutter transcript --last 20
+npx openutter screenshot
 ```
 
-## Transcript format
+## What It Does
 
-Transcripts are saved to `~/.openclaw/workspace/openutter/transcripts/<meeting-id>-<YYYY-MM-DD>.txt`:
+1. Joins a Google Meet call as a guest or authenticated user.
+2. Enables Google Meet live captions.
+3. Captures captions in real time via DOM observation.
+4. Writes a deduplicated transcript to disk.
+5. Supports on-demand screenshots.
 
+## Authenticate Once
+
+To join as an authenticated Google user instead of waiting in the guest lobby:
+
+```bash
+npx openutter auth
 ```
+
+This opens a browser window. Sign in to Google, then press Enter in the
+terminal. Your session is saved to:
+
+```bash
+~/.openutter/auth.json
+```
+
+## Join a Meeting
+
+Guest mode:
+
+```bash
+npx openutter join https://meet.google.com/abc-defg-hij --anon --bot-name "My Bot"
+```
+
+Authenticated mode:
+
+```bash
+npx openutter join https://meet.google.com/abc-defg-hij --auth
+```
+
+Headed mode for debugging:
+
+```bash
+npx openutter join https://meet.google.com/abc-defg-hij --auth --headed
+```
+
+This opens the Chromium window instead of running fully headless, which is
+useful if you need to debug login, admission, or caption issues.
+
+Common options:
+
+- `--headed` shows the browser for debugging
+- `--duration 30m` auto-leaves after a duration
+- `--channel <channel>` sends status updates through OpenClaw
+- `--target <id>` sets the target chat for those updates
+- `--verbose` prints live caption activity
+
+## Transcript
+
+Read the latest transcript:
+
+```bash
+npx openutter transcript
+```
+
+Read only the latest lines:
+
+```bash
+npx openutter transcript --last 20
+```
+
+Transcripts are saved under:
+
+```bash
+~/.openclaw/workspace/openutter/transcripts/<meeting-id>-<YYYY-MM-DD>.txt
+```
+
+Example format:
+
+```text
 [14:30:05] Alice: Hey everyone, let's get started
 [14:30:12] Bob: Sounds good, I have the updates ready
 [14:30:25] Alice: Great, go ahead
 ```
 
-To read the latest transcript while a meeting is active:
+## Screenshot
+
+Request an on-demand screenshot from a running meeting:
 
 ```bash
-npx tsx skills/openutter/scripts/utter-transcript.ts           # full transcript
-npx tsx skills/openutter/scripts/utter-transcript.ts --last 20  # last 20 lines
+npx openutter screenshot
 ```
 
-## How it works
+## Files
 
-1. **Launch** -- Spawns headless Chromium with stealth patches (spoofed `navigator.webdriver`, fake plugins, WebGL renderer) to avoid bot detection.
-
-2. **Join** -- Navigates to the Meet URL, enters the bot name, clicks "Ask to join" / "Join now", and waits up to 10 minutes for host admission. If blocked, retries with a fresh incognito context (up to 3 attempts).
-
-3. **Caption capture** -- After joining, enables Google Meet's live captions (tries CC button click, keyboard shortcut `c`, `Shift+C`, and the More Options menu). Injects a MutationObserver that watches the caption container for new nodes and `characterData` changes. Speaker names are extracted from `.NWpY1d` / `.xoMHSc` badge elements.
-
-4. **Deduplication** -- Google Meet updates captions word-by-word as speech is recognized. The bot tracks in-progress text per speaker and only finalizes a caption line when the text hasn't changed for 5 seconds.
-
-5. **Screenshot** -- The bot writes its PID to `~/.openutter/otter.pid`. The `utter-screenshot.ts` script sends `SIGUSR1` to trigger an on-demand screenshot.
-
-## Resource usage
-
-Measured on a single bot session (Apple M-series / headless):
-
-| Component                                   | Processes | RSS         |
-| ------------------------------------------- | --------- | ----------- |
-| Node (bot)                                  | 3         | ~350 MB     |
-| Chromium (browser + gpu + renderer + audio) | 5-6       | ~900 MB     |
-| **Total**                                   | **~9**    | **~1.2 GB** |
-
-CPU usage is ~6% of a single core during active caption capture, with spikes during join. Runs fully headless with no display server required.
-
-## File locations
-
-| Path                                                       | Description                                   |
-| ---------------------------------------------------------- | --------------------------------------------- |
-| `~/.openutter/auth.json`                                   | Saved Google session (cookies + localStorage) |
-| `~/.openutter/auth-meta.json`                              | Login metadata (email, timestamp)             |
-| `~/.openutter/chrome-profile/`                             | Persistent Chromium profile (guest mode)      |
-| `~/.openutter/config.json`                                 | Bot configuration (optional)                  |
-| `~/.openclaw/workspace/openutter/transcripts/`             | Caption transcripts                           |
-| `~/.openclaw/workspace/openutter/joined-meeting.png`       | Post-join confirmation screenshot             |
-| `~/.openclaw/workspace/openutter/on-demand-screenshot.png` | On-demand screenshot                          |
-| `~/.openclaw/workspace/openutter/debug-*.png`              | Debug screenshots on failure                  |
+- `~/.openutter/auth.json` saved Google session
+- `~/.openutter/auth-meta.json` saved login metadata
+- `~/.openutter/chrome-profile/` persistent Chromium profile
+- `~/.openclaw/workspace/openutter/transcripts/` transcript output
+- `~/.openclaw/workspace/openutter/on-demand-screenshot.png` screenshot output
+- `~/.openclaw/workspace/openutter/debug-join-failed.png` join failure screenshot
+- `~/.openclaw/workspace/openutter/debug-admit-failed.png` admit failure screenshot
 
 ## Troubleshooting
 
-**Bot can't join / "You can't join this video call"**
-Google Meet sometimes blocks headless browsers. The bot retries with fresh incognito contexts up to 3 times. Check the debug screenshot at `~/.openclaw/workspace/openutter/debug-join-failed.png`. Try `--headed` to debug visually.
+- If Chromium is missing, run `npx playwright-core install chromium`.
+- If guest join is stuck, ask the host to admit your bot by name.
+- If captions are empty, retry with `--headed --verbose` to verify captions were enabled.
+- If your Google session expires, run `npx openutter auth` again.
 
-**No captions captured**
-Google Meet's CC button selector changes occasionally. If the transcript is empty, captions may not have been enabled. Run with `--headed --verbose` to verify the CC button is being clicked.
+## Release
 
-**Session expired**
-Re-run `utter-auth.ts` to sign in again. The old session is overwritten automatically.
+This repo can publish directly to npm from GitHub Actions.
 
-**Host didn't admit the bot**
-In guest mode (`--anon`), the bot waits in the lobby for up to 10 minutes. Ask the host to admit your bot by name. For instant access, use `--auth` with a saved Google session.
+1. Bump `package.json` to the new version.
+2. Commit and push to `main`.
+3. Create and push a matching tag like `v0.1.1`.
+4. GitHub Actions publishes that exact version to npm.
 
-
-## License
-
-Distributed under the [MIT license](https://github.com/Mobilecn-UI/nativecn-ui/blob/main/LICENSE).
+The workflow validates that the git tag matches `package.json`.

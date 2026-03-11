@@ -3,7 +3,8 @@
  * utter-auth.ts — Sign the OpenUtter bot into Google via Playwright
  *
  * Usage:
- *   npx tsx skills/openutter/scripts/utter-auth.ts
+ *   npx openutter auth
+ *   node --import tsx scripts/utter-auth.ts
  *
  * Opens a headed Chromium browser at accounts.google.com. Sign in manually,
  * then press Enter in the terminal. The browser session (cookies + localStorage)
@@ -41,7 +42,7 @@ async function main() {
   try {
     pw = await import("playwright-core");
   } catch {
-    console.error("playwright-core not found. Install it: pnpm add -D playwright-core");
+    console.error("playwright-core not found. Run `npm install` or use `npx openutter auth`.");
     process.exit(1);
   }
 
@@ -138,8 +139,8 @@ async function main() {
   await browser.close();
 
   console.log("\nDone! The bot will now join meetings as an authenticated user.");
-  console.log("Run: npx tsx skills/openutter/scripts/utter-join.ts <meet-url>");
-  console.log("\nTo join as a guest instead, use: --no-auth");
+  console.log("Run: npx openutter join <meet-url> --auth");
+  console.log('\nTo join as a guest instead, use: npx openutter join <meet-url> --anon --bot-name "OpenUtter Bot"');
   console.log("If the session expires, re-run this script to sign in again.");
 }
 

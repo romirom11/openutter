@@ -3,8 +3,9 @@
  * utter-transcript.ts — Get the current transcript from a running OpenUtter bot
  *
  * Usage:
- *   npx tsx skills/openutter/scripts/utter-transcript.ts
- *   npx tsx skills/openutter/scripts/utter-transcript.ts --last 20
+ *   npx openutter transcript
+ *   npx openutter transcript --last 20
+ *   node --import tsx scripts/utter-transcript.ts --last 20
  *
  * Finds the most recent transcript file and prints its contents.
  * Use this when the user asks "what are they saying?" or "what's happening in the meeting?"

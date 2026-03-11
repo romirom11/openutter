@@ -1,0 +1,30 @@
+{
+  "name": "openutter",
+  "version": "0.1.0",
+  "description": "Install and run the OpenUtter OpenClaw skill",
+  "type": "module",
+  "bin": {
+    "openutter": "bin/openutter.mjs"
+  },
+  "files": [
+    "bin",
+    "scripts",
+    "SKILL.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sumansid/openutter.git"
+  },
+  "homepage": "https://github.com/sumansid/openutter",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "playwright-core": "^1.58.2",
+    "tsx": "^4.21.0"
+  }
+}

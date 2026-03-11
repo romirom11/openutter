@@ -55,7 +55,7 @@ and poll for status updates.
 ### Launch command
 
 ```bash
-exec background:true command:"npx tsx skills/openutter/scripts/utter-join.ts https://meet.google.com/abc-defg-hij --auth|--anon --channel <current-channel> --target <current-chat-id>"
+exec background:true command:"npx openutter join https://meet.google.com/abc-defg-hij --auth|--anon --channel <current-channel> --target <current-chat-id>"
 ```
 
 **IMPORTANT:** Always pass `--channel` and `--target` from the current conversation context.
@@ -97,7 +97,7 @@ When the meeting ends, the bot prints `[OPENUTTER_TRANSCRIPT] <path>` with the t
 or anything about meeting content — run this script. Do NOT use utter-screenshot.ts for this.**
 
 ```bash
-exec command:"npx tsx skills/openutter/scripts/utter-transcript.ts"
+exec command:"npx openutter transcript"
 ```
 
 Use `--last 20` to get only the last 20 lines (for long meetings).
@@ -109,7 +109,7 @@ Read the output and summarize it for the user in natural language.
 If the user asks to **see** the meeting (e.g. "send me a screenshot", "what does it look like"):
 
 ```bash
-exec command:"npx tsx skills/openutter/scripts/utter-screenshot.ts"
+exec command:"npx openutter screenshot"
 ```
 
 Send the screenshot image to the user via `message`. Do NOT read the screenshot yourself.
@@ -126,7 +126,7 @@ By default the bot joins as a guest and needs host admission. To join as an auth
 Google user (no admission needed), run the auth script once:
 
 ```bash
-npx tsx skills/openutter/scripts/utter-auth.ts
+npx openutter auth
 ```
 
 This opens a headed browser — sign into Google, then press Enter. The session is saved to
@@ -198,7 +198,7 @@ NEVER just describe what happened in text. The user MUST receive the actual imag
 meeting content — run `utter-transcript.ts`. NEVER use `utter-screenshot.ts` for this.**
 
 ```bash
-exec command:"npx tsx skills/openutter/scripts/utter-transcript.ts"
+exec command:"npx openutter transcript"
 ```
 
 Read the output and summarize it for the user. Use `--last 20` for long meetings.

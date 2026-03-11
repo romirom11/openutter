@@ -3,9 +3,9 @@
  * utter-join.ts — Join a Google Meet meeting as a guest via Playwright
  *
  * Usage:
- *   npx tsx skills/openutter/scripts/utter-join.ts <meet-url>
- *   npx tsx skills/openutter/scripts/utter-join.ts https://meet.google.com/abc-defg-hij
- *   npx tsx skills/openutter/scripts/utter-join.ts <meet-url> --bot-name "My Bot" --duration 60m
+ *   npx openutter join <meet-url> --auth
+ *   npx openutter join https://meet.google.com/abc-defg-hij --anon --bot-name "OpenUtter Bot"
+ *   npx openutter join <meet-url> --anon --bot-name "My Bot" --duration 60m
  *
  * No Google account or OAuth required — joins as a guest and waits for host admission.
  */
@@ -97,7 +97,7 @@ function parseArgs() {
 
   if (!meetUrl) {
     console.error(
-      "Usage: npx tsx utter-join.ts <meet-url> --auth|--anon [--camera] [--mic] [--duration 60m] [--bot-name <name>] [--channel <channel>] [--target <id>]",
+      "Usage: npx openutter join <meet-url> --auth|--anon [--camera] [--mic] [--duration 60m] [--bot-name <name>] [--channel <channel>] [--target <id>]",
     );
     process.exit(1);
   }
@@ -982,7 +982,7 @@ export async function joinMeeting(opts: {
   try {
     pw = await import("playwright-core");
   } catch {
-    console.error("playwright-core not found. Install it: pnpm add -D playwright-core");
+    console.error("playwright-core not found. Run `npm install` or use `npx openutter join ...`.");
     process.exit(1);
   }
 
@@ -992,11 +992,11 @@ export async function joinMeeting(opts: {
 
   const hasAuth = !noAuth && existsSync(AUTH_FILE);
   if (noAuth) {
-    console.log("  Joining as guest (--no-auth)");
+    console.log("  Joining as guest (--anon)");
   } else if (hasAuth) {
     console.log(`  Using saved auth: ${AUTH_FILE}`);
   } else {
-    console.log("  No auth.json found — joining as guest (run utter-auth.ts to sign in)");
+    console.log("  No auth.json found — joining as guest (run `npx openutter auth` to sign in)");
   }
 
   const chromiumArgs = [

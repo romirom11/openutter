@@ -3,7 +3,8 @@
  * utter-screenshot.ts — Request an on-demand screenshot from a running OpenUtter bot
  *
  * Usage:
- *   npx tsx skills/openutter/scripts/utter-screenshot.ts
+ *   npx openutter screenshot
+ *   node --import tsx scripts/utter-screenshot.ts
  *
  * Sends SIGUSR1 to the running utter-join process, waits for
  * the screenshot to be saved, and prints the path.
