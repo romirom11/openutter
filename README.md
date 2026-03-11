@@ -19,6 +19,25 @@ This installs the OpenUtter skill into:
 ~/.openclaw/skills/openutter
 ```
 
+For example, on a Linux host running OpenClaw as the `openclaw` user, that path
+would usually be:
+
+```bash
+/home/openclaw/.openclaw/skills/openutter/
+```
+
+By default, OpenUtter installs into that shared OpenClaw skills directory no
+matter which folder you run `npx openutter` from.
+
+If you want to install into a specific location instead, use `--target-dir`:
+
+```bash
+npx openutter --target-dir ./skills/openutter
+```
+
+That is useful if you want a repo-local/workspace-local install instead of the
+default shared install under `~/.openclaw/skills/openutter`.
+
 During install, OpenUtter also tries to:
 
 - install Chromium via Playwright
