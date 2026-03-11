@@ -1152,7 +1152,7 @@ export async function joinMeeting(opts: {
       sendMessage({
         channel,
         target,
-        message: `🦦 Waiting to be admitted — please ask the host to let "OpenUtter Bot" in`,
+        message: `🦦 Waiting to be admitted — please ask the host to let "${botName}" in`,
       });
       try {
         await waitUntilInMeeting(currentPage);

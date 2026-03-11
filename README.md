@@ -79,7 +79,19 @@ npx openutter screenshot
 
 ## Authenticate Once (Optional)
 
-To join as an authenticated Google user instead of waiting in the guest lobby:
+Authentication is optional.
+
+By default, OpenUtter can join as a guest with:
+
+```bash
+npx openutter join <meet-url> --anon --bot-name "Your Bot Name"
+```
+
+Use authentication only if you want OpenUtter to join as your signed-in Google
+account with `--auth`, which usually avoids waiting in the guest lobby for host
+approval.
+
+To save a Google session for authenticated joins:
 
 ```bash
 npx openutter auth
@@ -90,6 +102,12 @@ terminal. Your session is saved to:
 
 ```bash
 ~/.openutter/auth.json
+```
+
+After that, you can join with:
+
+```bash
+npx openutter join <meet-url> --auth
 ```
 
 ## Join a Meeting
