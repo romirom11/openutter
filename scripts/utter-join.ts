@@ -75,6 +75,18 @@ function sendMessage(opts: { channel?: string; target?: string; message: string 
   }
 }
 
+function buildJoinRecoveryMessage(botName: string, maxJoinRetries: number): string {
+  return [
+    `🦦 I can try to join again ${maxJoinRetries} times or, for a reliable way, here's my suggestion:`,
+    "",
+    "Two options:",
+    `1. Get admitted manually. When the bot asks to join as "${botName}", have someone in the meeting click "Admit." If the host has "Only people invited" or "host approval required" enabled, it will wait there until they accept.`,
+    '2. Authenticate the bot. Run `npx openutter auth` once on the machine running OpenUtter, sign into a Google account, and that session gets saved under `~/.openutter/auth.json`. After that I can join meetings with `--auth`, which usually skips the "ask to join" screen entirely.',
+    "",
+    "Pick whichever works for you. Once it is allowed in, I can keep recording captions and screenshots like before. I can try again to join whenever you want.",
+  ].join("\n");
+}
+
 // ── CLI parsing ────────────────────────────────────────────────────────
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -1134,6 +1146,11 @@ export async function joinMeeting(opts: {
       const screenshotPath = join(OPENUTTER_WORKSPACE_DIR, "debug-join-failed.png");
       await currentPage.screenshot({ path: screenshotPath, fullPage: true });
       console.error(`[OPENUTTER_DEBUG_IMAGE] ${screenshotPath}`);
+      sendMessage({
+        channel,
+        target,
+        message: buildJoinRecoveryMessage(botName, MAX_JOIN_RETRIES),
+      });
       sendImage({
         channel,
         target,
@@ -1220,6 +1237,11 @@ export async function joinMeeting(opts: {
     await currentPage.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
     console.error("Could not join the meeting after all attempts.");
     console.error(`[OPENUTTER_DEBUG_IMAGE] ${screenshotPath}`);
+    sendMessage({
+      channel,
+      target,
+      message: buildJoinRecoveryMessage(botName, MAX_JOIN_RETRIES),
+    });
     sendImage({
       channel,
       target,
