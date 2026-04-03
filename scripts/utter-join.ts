@@ -106,10 +106,14 @@ function parseArgs() {
   const channel = channelIdx >= 0 ? args[channelIdx + 1] : undefined;
   const targetIdx = args.indexOf("--target");
   const target = targetIdx >= 0 ? args[targetIdx + 1] : undefined;
+  const langIdx = args.indexOf("--lang");
+  const lang = langIdx >= 0 ? args[langIdx + 1] : "uk";
+  const modeIdx = args.indexOf("--mode");
+  const mode = (modeIdx >= 0 ? args[modeIdx + 1] : "captions") as "captions" | "audio";
 
   if (!meetUrl) {
     console.error(
-      "Usage: npx openutter join <meet-url> --auth|--anon [--camera] [--mic] [--duration 60m] [--bot-name <name>] [--channel <channel>] [--target <id>]",
+      "Usage: npx openutter join <meet-url> --auth|--anon [--camera] [--mic] [--duration 60m] [--bot-name <name>] [--channel <channel>] [--target <id>] [--lang <code>] [--mode captions|audio]",
     );
     process.exit(1);
   }
@@ -157,6 +161,8 @@ function parseArgs() {
     botName,
     channel,
     target,
+    lang,
+    mode,
   };
 }
 
@@ -592,6 +598,171 @@ function extractMeetingId(meetUrl: string): string {
   }
 }
 
+
+/**
+ * Map of common language codes to Google Meet caption language display names.
+ */
+const CAPTION_LANG_MAP: Record<string, string[]> = {
+  "uk": ["Ukrainian", "Українська"],
+  "en": ["English", "English"],
+  "de": ["German", "Deutsch"],
+  "fr": ["French", "Français"],
+  "es": ["Spanish", "Español"],
+  "pt": ["Portuguese", "Português"],
+  "it": ["Italian", "Italiano"],
+  "pl": ["Polish", "Polski"],
+  "nl": ["Dutch", "Nederlands"],
+  "ja": ["Japanese", "日本語"],
+  "ko": ["Korean", "한국어"],
+  "zh": ["Chinese", "中文"],
+  "ru": ["Russian", "Русский"],
+};
+
+/**
+ * Switch Google Meet caption language via Settings UI.
+ * Flow: Click More options -> Settings -> Captions -> Language dropdown -> Select language -> Close
+ */
+async function setCaptionLanguage(page: Page, lang: string): Promise<void> {
+  if (lang === "en") {
+    console.log("  Caption language: English (default, no switch needed)");
+    return;
+  }
+
+  const langNames = CAPTION_LANG_MAP[lang];
+  if (!langNames) {
+    console.warn(`  Unknown language code "${lang}", skipping caption language switch`);
+    return;
+  }
+
+  console.log(`  Switching caption language to: ${langNames[0]} (${lang})`);
+
+  // Move mouse to bottom to reveal toolbar
+  await page.mouse.move(640, 680);
+  await page.waitForTimeout(1000);
+
+  // Click "More options" button
+  try {
+    const moreBtn = page.locator(
+      'button[aria-label*="More options" i], ' +
+      'button[aria-label*="More actions" i], ' +
+      'button[aria-label*="Більше параметрів" i], ' +
+      'button[aria-label*="Інші дії" i]'
+    ).first();
+
+    if (await moreBtn.isVisible({ timeout: 3000 })) {
+      await moreBtn.click();
+      await page.waitForTimeout(1000);
+    } else {
+      console.warn("  Could not find More Options button");
+      return;
+    }
+  } catch {
+    console.warn("  Failed to click More Options button");
+    return;
+  }
+
+  // Click "Settings" in the dropdown menu
+  try {
+    const settingsItem = page.locator(
+      'li[aria-label*="Settings" i], ' +
+      'li[aria-label*="Налаштування" i], ' +
+      'span:text-is("Settings"), ' +
+      'span:text-is("Налаштування")'
+    ).first();
+
+    if (await settingsItem.isVisible({ timeout: 3000 })) {
+      await settingsItem.click();
+      await page.waitForTimeout(1500);
+    } else {
+      await page.keyboard.press("Escape");
+      console.warn("  Could not find Settings menu item");
+      return;
+    }
+  } catch {
+    await page.keyboard.press("Escape");
+    console.warn("  Failed to click Settings");
+    return;
+  }
+
+  // Click "Captions" tab in settings dialog
+  try {
+    const captionsTab = page.locator(
+      '[role="tab"]:has-text("Captions"), ' +
+      '[role="tab"]:has-text("Субтитри"), ' +
+      'button:has-text("Captions"), ' +
+      'button:has-text("Субтитри")'
+    ).first();
+
+    if (await captionsTab.isVisible({ timeout: 3000 })) {
+      await captionsTab.click();
+      await page.waitForTimeout(1000);
+    }
+  } catch {
+    // Captions tab might already be selected or not exist as separate tab
+  }
+
+  // Find and click the language dropdown/selector
+  try {
+    const langDropdown = page.locator(
+      '[aria-label*="language" i], ' +
+      '[aria-label*="мова" i], ' +
+      'select, ' +
+      '[role="listbox"], ' +
+      '[role="combobox"]'
+    ).first();
+
+    if (await langDropdown.isVisible({ timeout: 3000 })) {
+      await langDropdown.click();
+      await page.waitForTimeout(1000);
+
+      // Try to find and click the target language option
+      for (const name of langNames) {
+        try {
+          const langOption = page.locator(
+            `[role="option"]:has-text("${name}"), ` +
+            `li:has-text("${name}"), ` +
+            `[data-value="${lang}"], ` +
+            `option:has-text("${name}")`
+          ).first();
+
+          if (await langOption.isVisible({ timeout: 2000 })) {
+            await langOption.click();
+            console.log(`  Caption language set to ${name}`);
+            await page.waitForTimeout(1000);
+            break;
+          }
+        } catch {
+          continue;
+        }
+      }
+    } else {
+      console.warn("  Could not find language dropdown in settings");
+    }
+  } catch (err) {
+    console.warn("  Failed to change caption language:", err instanceof Error ? err.message : String(err));
+  }
+
+  // Close settings dialog
+  try {
+    const closeBtn = page.locator(
+      'button[aria-label="Close" i], ' +
+      'button[aria-label="Закрити" i], ' +
+      'button:has-text("Close"), ' +
+      'button:has-text("Закрити")'
+    ).first();
+
+    if (await closeBtn.isVisible({ timeout: 2000 })) {
+      await closeBtn.click();
+    } else {
+      await page.keyboard.press("Escape");
+    }
+  } catch {
+    await page.keyboard.press("Escape");
+  }
+
+  await page.waitForTimeout(500);
+}
+
 /**
  * Enable live captions. Dismiss overlays first (Escape), then try multiple
  * methods to activate captions, verifying each one.
@@ -748,6 +919,126 @@ async function enableCaptions(page: Page): Promise<void> {
  *
  * Ref: https://www.recall.ai/blog/how-i-built-an-in-house-google-meet-bot
  */
+
+// ── Audio capture mode (PulseAudio + ffmpeg + Soniox) ──────────────────
+
+/**
+ * Set up PulseAudio virtual sink and start ffmpeg recording of browser audio.
+ * Returns cleanup function and path to the recorded audio file.
+ */
+async function setupAudioCapture(
+  meetingId: string,
+  verbose: boolean,
+): Promise<{ audioPath: string; cleanup: () => void }> {
+  const audioPath = join(TRANSCRIPTS_DIR, `${meetingId}.wav`);
+
+  // Create a virtual PulseAudio sink for capturing browser audio
+  try {
+    execSync("pactl load-module module-null-sink sink_name=openutter_capture sink_properties=device.description=OpenUtterCapture", {
+      stdio: verbose ? "inherit" : "pipe",
+    });
+  } catch {
+    // Sink might already exist
+    if (verbose) console.log("  PulseAudio sink may already exist, continuing...");
+  }
+
+  // Set the default sink so Chromium outputs to our virtual sink
+  try {
+    execSync("pactl set-default-sink openutter_capture", { stdio: verbose ? "inherit" : "pipe" });
+  } catch (err) {
+    console.error("  Failed to set default PulseAudio sink:", err instanceof Error ? err.message : String(err));
+  }
+
+  // Start ffmpeg recording from the monitor source of our virtual sink
+  const { execSync: _exec, spawn } = require("node:child_process");
+  const ffmpeg = spawn("ffmpeg", [
+    "-f", "pulse",
+    "-i", "openutter_capture.monitor",
+    "-ac", "1",
+    "-ar", "16000",
+    "-acodec", "pcm_s16le",
+    "-y",
+    audioPath,
+  ], {
+    stdio: verbose ? "inherit" : "pipe",
+    detached: false,
+  });
+
+  if (verbose) console.log(`  ffmpeg recording started -> ${audioPath}`);
+
+  const cleanup = () => {
+    try {
+      ffmpeg.kill("SIGINT");
+      // Give ffmpeg a moment to flush and close the file
+      execSync("sleep 1");
+    } catch {
+      // Best effort
+    }
+    // Unload the virtual sink
+    try {
+      execSync("pactl unload-module module-null-sink", { stdio: "pipe" });
+    } catch {
+      // Best effort
+    }
+    if (verbose) console.log("  Audio capture stopped");
+  };
+
+  return { audioPath, cleanup };
+}
+
+/**
+ * Transcribe an audio file using Soniox async file API.
+ * POST to https://stt-rt.soniox.com/transcribe-file with the audio file.
+ * Returns the transcript text.
+ */
+async function transcribeWithSoniox(audioPath: string, verbose: boolean): Promise<string> {
+  const soniox_api_key = process.env.SONIOX_API_KEY || "";
+  if (!soniox_api_key) {
+    console.error("  SONIOX_API_KEY not set, cannot transcribe");
+    return "";
+  }
+
+  if (!existsSync(audioPath)) {
+    console.error(`  Audio file not found: ${audioPath}`);
+    return "";
+  }
+
+  console.log("  Transcribing with Soniox...");
+
+  try {
+    // Use curl for the multipart upload (simpler than implementing in Node)
+    const result = execSync(
+      `curl -s -X POST "https://api.soniox.com/v1/transcribe" ` +
+      `-H "Authorization: Bearer ${soniox_api_key}" ` +
+      `-F "file=@${audioPath}" ` +
+      `-F "model=soniox-v2" ` +
+      `-F "language_hints=uk,en"`,
+      { timeout: 300_000, encoding: "utf-8" }
+    );
+
+    const response = JSON.parse(result);
+    if (verbose) console.log("  Soniox response:", JSON.stringify(response).substring(0, 200));
+
+    // Extract transcript text from response
+    if (response.text) {
+      return response.text;
+    }
+    if (response.words) {
+      return response.words.map((w: { text: string }) => w.text).join(" ");
+    }
+    if (response.segments) {
+      return response.segments.map((s: { text: string }) => s.text).join("\n");
+    }
+
+    console.warn("  Unexpected Soniox response format");
+    return JSON.stringify(response);
+  } catch (err) {
+    console.error("  Soniox transcription failed:", err instanceof Error ? err.message : String(err));
+    return "";
+  }
+}
+
+
 const CAPTION_OBSERVER_SCRIPT = `
 (function() {
   var BADGE_SEL = ".NWpY1d, .xoMHSc";
@@ -986,6 +1277,8 @@ export async function joinMeeting(opts: {
   botName?: string;
   channel?: string;
   target?: string;
+  lang?: string;
+  mode?: "captions" | "audio";
 }): Promise<{ context: BrowserContext; page: Page; reason: string }> {
   const {
     meetUrl,
@@ -998,6 +1291,8 @@ export async function joinMeeting(opts: {
     botName: botNameOpt,
     channel,
     target,
+    lang = "uk",
+    mode = "captions",
   } = opts;
 
   // Resolve bot name from config or arg
@@ -1269,48 +1564,90 @@ export async function joinMeeting(opts: {
   // Dismiss post-join dialogs (e.g. "Others may see your video differently" → "Got it")
   await dismissPostJoinDialogs(currentPage);
 
-  // Enable live captions and start transcript capture
-  sendMessage({ channel, target, message: `🦦 Enabling live captions...` });
-  await enableCaptions(currentPage);
-
   const meetingId = extractMeetingId(meetUrl);
   mkdirSync(TRANSCRIPTS_DIR, { recursive: true });
   const transcriptPath = join(TRANSCRIPTS_DIR, `${meetingId}.txt`);
   writeFileSync(transcriptPath, "");
 
-  const { cleanup: cleanupCaptions, getLastCaptionAt } = await setupCaptionCapture(
-    currentPage,
-    transcriptPath,
-    verbose,
-  );
+  let cleanupFn: () => void = () => {};
+  let getLastCaptionAt: () => number = () => Date.now();
 
-  sendMessage({
-    channel,
-    target,
-    message: `🦦 All set! Listening and capturing captions. I'll save the transcript when the meeting ends.`,
-  });
+  if (mode === "audio") {
+    // ── Audio mode: record browser audio via PulseAudio + ffmpeg ──
+    sendMessage({ channel, target, message: `🦦 Starting audio recording (Soniox transcription)...` });
+    const { audioPath, cleanup: cleanupAudio } = await setupAudioCapture(meetingId, verbose);
+    cleanupFn = cleanupAudio;
 
-  // Wait for meeting to end
-  console.log("Waiting in meeting... (Ctrl+C to leave)");
-  const reason = await waitForMeetingEnd(currentPage, {
-    durationMs,
-    captionIdleTimeoutMs: 10 * 60_000,
-    getLastCaptionAt,
-  });
-  console.log(`\nLeaving meeting: ${reason}`);
-
-  // Flush remaining captions
-  cleanupCaptions();
-
-  if (existsSync(transcriptPath)) {
-    console.log(`[OPENUTTER_TRANSCRIPT] ${transcriptPath}`);
-    sendMessage({ channel, target, message: `🦦 Meeting ended (${reason}). Transcript saved.` });
-  } else {
     sendMessage({
       channel,
       target,
-      message: `🦦 Meeting ended (${reason}). No captions were captured.`,
+      message: `🦦 All set! Recording audio. Transcript will be generated after meeting ends.`,
     });
+
+    // Wait for meeting to end
+    console.log("Waiting in meeting (audio mode)... (Ctrl+C to leave)");
+    const reason = await waitForMeetingEnd(currentPage, {
+      durationMs,
+      captionIdleTimeoutMs: undefined,
+      getLastCaptionAt: undefined,
+    });
+    console.log(`\nLeaving meeting: ${reason}`);
+
+    // Stop recording
+    cleanupFn();
+
+    // Transcribe with Soniox
+    sendMessage({ channel, target, message: `🦦 Meeting ended (${reason}). Transcribing audio with Soniox...` });
+    const transcript = await transcribeWithSoniox(audioPath, verbose);
+    if (transcript) {
+      writeFileSync(transcriptPath, transcript);
+      console.log(`[OPENUTTER_TRANSCRIPT] ${transcriptPath}`);
+      sendMessage({ channel, target, message: `🦦 Transcript ready!` });
+    } else {
+      sendMessage({ channel, target, message: `🦦 Meeting ended (${reason}). Audio transcription failed.` });
+    }
+  } else {
+    // ── Captions mode: use Google Meet built-in captions ──
+    sendMessage({ channel, target, message: `🦦 Enabling live captions (${lang})...` });
+    await enableCaptions(currentPage);
+    await setCaptionLanguage(currentPage, lang);
+
+    const { cleanup: cleanupCaptions, getLastCaptionAt: getCaptionTs } = await setupCaptionCapture(
+      currentPage,
+      transcriptPath,
+      verbose,
+    );
+    cleanupFn = cleanupCaptions;
+    getLastCaptionAt = getCaptionTs;
+
+    sendMessage({
+      channel,
+      target,
+      message: `🦦 All set! Listening and capturing captions (${lang}). Transcript saved when meeting ends.`,
+    });
+
+    // Wait for meeting to end
+    console.log("Waiting in meeting (captions mode)... (Ctrl+C to leave)");
+    const reason = await waitForMeetingEnd(currentPage, {
+      durationMs,
+      captionIdleTimeoutMs: 10 * 60_000,
+      getLastCaptionAt,
+    });
+    console.log(`\nLeaving meeting: ${reason}`);
+
+    // Flush remaining captions
+    cleanupFn();
+
+    if (existsSync(transcriptPath)) {
+      console.log(`[OPENUTTER_TRANSCRIPT] ${transcriptPath}`);
+      sendMessage({ channel, target, message: `🦦 Meeting ended (${reason}). Transcript saved.` });
+    } else {
+      sendMessage({
+        channel,
+        target,
+        message: `🦦 Meeting ended (${reason}). No captions were captured.`,
+      });
+    }
   }
 
   return { context: currentContext, page: currentPage, reason };
