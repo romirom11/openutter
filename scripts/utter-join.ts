@@ -83,7 +83,7 @@ function buildJoinRecoveryMessage(botName: string, maxJoinRetries: number): stri
     `1. Get admitted manually. When the bot asks to join as "${botName}", have someone in the meeting click "Admit." If the host has "Only people invited" or "host approval required" enabled, it will wait there until they accept.`,
     '2. Authenticate the bot. Run `npx openutter auth` once on the machine running OpenUtter, sign into a Google account, and that session gets saved under `~/.openutter/auth.json`. After that I can join meetings with `--auth`, which usually skips the "ask to join" screen entirely.',
     "",
-    "Pick whichever works for you. Once it is allowed in, I can keep recording captions and screenshots like before. I can try again to join whenever you want.",
+    "Pick whichever works for you. Once it is allowed in, I can keep recording audio and screenshots like before. I can try again to join whenever you want.",
   ].join("\n");
 }
 
@@ -106,14 +106,10 @@ function parseArgs() {
   const channel = channelIdx >= 0 ? args[channelIdx + 1] : undefined;
   const targetIdx = args.indexOf("--target");
   const target = targetIdx >= 0 ? args[targetIdx + 1] : undefined;
-  const langIdx = args.indexOf("--lang");
-  const lang = langIdx >= 0 ? args[langIdx + 1] : "uk";
-  const modeIdx = args.indexOf("--mode");
-  const mode = (modeIdx >= 0 ? args[modeIdx + 1] : "audio") as "captions" | "audio";
 
   if (!meetUrl) {
     console.error(
-      "Usage: npx openutter join <meet-url> --auth|--anon [--camera] [--mic] [--duration 60m] [--bot-name <name>] [--channel <channel>] [--target <id>] [--lang <code>] [--mode captions|audio]",
+      "Usage: npx openutter join <meet-url> --auth|--anon [--camera] [--mic] [--duration 60m] [--bot-name <name>] [--channel <channel>] [--target <id>]",
     );
     process.exit(1);
   }
@@ -161,8 +157,6 @@ function parseArgs() {
     botName,
     channel,
     target,
-    lang,
-    mode,
   };
 }
 
@@ -460,14 +454,10 @@ async function waitForMeetingEnd(
   page: Page,
   opts?: {
     durationMs?: number;
-    captionIdleTimeoutMs?: number;
-    getLastCaptionAt?: () => number;
   },
 ): Promise<string> {
   const start = Date.now();
   const durationMs = opts?.durationMs;
-  const captionIdleTimeoutMs = opts?.captionIdleTimeoutMs;
-  const getLastCaptionAt = opts?.getLastCaptionAt;
 
   const checkEnded = async (): Promise<string | null> => {
     try {
@@ -496,10 +486,6 @@ async function waitForMeetingEnd(
       return "Duration limit reached";
     }
 
-    if (captionIdleTimeoutMs && getLastCaptionAt && Date.now() - getLastCaptionAt() >= captionIdleTimeoutMs) {
-      await clickLeaveButton(page);
-      return "No captions captured for 10 minutes";
-    }
 
     const reason = await checkEnded();
     if (reason) {
@@ -583,7 +569,7 @@ export function cleanupPidFile(): void {
   }
 }
 
-// ── Caption capture ────────────────────────────────────────────────────
+// ── Audio capture (PulseAudio + ffmpeg + Soniox) ──────────────────
 
 /**
  * Extract the meeting ID from a Google Meet URL.
@@ -597,330 +583,6 @@ function extractMeetingId(meetUrl: string): string {
     return "unknown";
   }
 }
-
-
-/**
- * Map of common language codes to Google Meet caption language display names.
- */
-const CAPTION_LANG_MAP: Record<string, string[]> = {
-  "uk": ["Ukrainian", "Українська"],
-  "en": ["English", "English"],
-  "de": ["German", "Deutsch"],
-  "fr": ["French", "Français"],
-  "es": ["Spanish", "Español"],
-  "pt": ["Portuguese", "Português"],
-  "it": ["Italian", "Italiano"],
-  "pl": ["Polish", "Polski"],
-  "nl": ["Dutch", "Nederlands"],
-  "ja": ["Japanese", "日本語"],
-  "ko": ["Korean", "한국어"],
-  "zh": ["Chinese", "中文"],
-  "ru": ["Russian", "Русский"],
-};
-
-/**
- * Switch Google Meet caption language via Settings UI.
- * Flow: Click More options -> Settings -> Captions -> Language dropdown -> Select language -> Close
- */
-async function setCaptionLanguage(page: Page, lang: string): Promise<void> {
-  if (lang === "en") {
-    console.log("  Caption language: English (default, no switch needed)");
-    return;
-  }
-
-  const langNames = CAPTION_LANG_MAP[lang];
-  if (!langNames) {
-    console.warn(`  Unknown language code "${lang}", skipping caption language switch`);
-    return;
-  }
-
-  console.log(`  Switching caption language to: ${langNames[0]} (${lang})`);
-
-  // Move mouse to bottom to reveal toolbar
-  await page.mouse.move(640, 680);
-  await page.waitForTimeout(1000);
-
-  // Click "More options" button
-  try {
-    const moreBtn = page.locator(
-      'button[aria-label*="More options" i], ' +
-      'button[aria-label*="More actions" i], ' +
-      'button[aria-label*="Більше параметрів" i], ' +
-      'button[aria-label*="Інші дії" i]'
-    ).first();
-
-    if (await moreBtn.isVisible({ timeout: 3000 })) {
-      await moreBtn.click();
-      await page.waitForTimeout(1000);
-    } else {
-      console.warn("  Could not find More Options button");
-      return;
-    }
-  } catch {
-    console.warn("  Failed to click More Options button");
-    return;
-  }
-
-  // Click "Settings" in the dropdown menu
-  try {
-    const settingsItem = page.locator(
-      'li[aria-label*="Settings" i], ' +
-      'li[aria-label*="Налаштування" i], ' +
-      'span:text-is("Settings"), ' +
-      'span:text-is("Налаштування")'
-    ).first();
-
-    if (await settingsItem.isVisible({ timeout: 3000 })) {
-      await settingsItem.click();
-      await page.waitForTimeout(1500);
-    } else {
-      await page.keyboard.press("Escape");
-      console.warn("  Could not find Settings menu item");
-      return;
-    }
-  } catch {
-    await page.keyboard.press("Escape");
-    console.warn("  Failed to click Settings");
-    return;
-  }
-
-  // Click "Captions" tab in settings dialog
-  try {
-    const captionsTab = page.locator(
-      '[role="tab"]:has-text("Captions"), ' +
-      '[role="tab"]:has-text("Субтитри"), ' +
-      'button:has-text("Captions"), ' +
-      'button:has-text("Субтитри")'
-    ).first();
-
-    if (await captionsTab.isVisible({ timeout: 3000 })) {
-      await captionsTab.click();
-      await page.waitForTimeout(1000);
-    }
-  } catch {
-    // Captions tab might already be selected or not exist as separate tab
-  }
-
-  // Find and click the language dropdown/selector
-  try {
-    const langDropdown = page.locator(
-      '[aria-label*="language" i], ' +
-      '[aria-label*="мова" i], ' +
-      'select, ' +
-      '[role="listbox"], ' +
-      '[role="combobox"]'
-    ).first();
-
-    if (await langDropdown.isVisible({ timeout: 3000 })) {
-      await langDropdown.click();
-      await page.waitForTimeout(1000);
-
-      // Try to find and click the target language option
-      for (const name of langNames) {
-        try {
-          const langOption = page.locator(
-            `[role="option"]:has-text("${name}"), ` +
-            `li:has-text("${name}"), ` +
-            `[data-value="${lang}"], ` +
-            `option:has-text("${name}")`
-          ).first();
-
-          if (await langOption.isVisible({ timeout: 2000 })) {
-            await langOption.click();
-            console.log(`  Caption language set to ${name}`);
-            await page.waitForTimeout(1000);
-            break;
-          }
-        } catch {
-          continue;
-        }
-      }
-    } else {
-      console.warn("  Could not find language dropdown in settings");
-    }
-  } catch (err) {
-    console.warn("  Failed to change caption language:", err instanceof Error ? err.message : String(err));
-  }
-
-  // Close settings dialog
-  try {
-    const closeBtn = page.locator(
-      'button[aria-label="Close" i], ' +
-      'button[aria-label="Закрити" i], ' +
-      'button:has-text("Close"), ' +
-      'button:has-text("Закрити")'
-    ).first();
-
-    if (await closeBtn.isVisible({ timeout: 2000 })) {
-      await closeBtn.click();
-    } else {
-      await page.keyboard.press("Escape");
-    }
-  } catch {
-    await page.keyboard.press("Escape");
-  }
-
-  await page.waitForTimeout(500);
-}
-
-/**
- * Enable live captions. Dismiss overlays first (Escape), then try multiple
- * methods to activate captions, verifying each one.
- * Based on: https://www.recall.ai/blog/how-i-built-an-in-house-google-meet-bot
- */
-async function enableCaptions(page: Page): Promise<void> {
-  // Wait for UI to stabilize after joining
-  await page.waitForTimeout(5000);
-
-  // Dismiss any overlays first — RecallAI presses Escape 8 times
-  for (let i = 0; i < 8; i++) {
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
-  }
-  await page.waitForTimeout(500);
-
-  // Also dismiss common overlay buttons
-  for (const text of ["Got it", "Dismiss", "Continue"]) {
-    try {
-      const btn = page.locator(`button:has-text("${text}")`).first();
-      if (await btn.isVisible({ timeout: 500 })) {
-        await btn.click();
-        await page.waitForTimeout(300);
-      }
-    } catch {
-      // Not present
-    }
-  }
-
-  // Strict check: look for the actual caption container, not just [aria-live]
-  // which can exist on the page for other purposes
-  const checkCaptions = async (): Promise<boolean> =>
-    page
-      .evaluate(`
-      !!(document.querySelector('[role="region"][aria-label*="Captions"]') ||
-         document.querySelector('[aria-label="Captions are on"]') ||
-         document.querySelector('button[aria-label*="Turn off captions" i]') ||
-         document.querySelector('[data-is-persistent-caption="true"]'))
-    `)
-      .catch(() => false) as Promise<boolean>;
-
-  // Check if CC button shows "Turn off" (meaning captions are already on)
-  const captionsAlreadyOn = await checkCaptions();
-  if (captionsAlreadyOn) {
-    console.log("  Captions already enabled");
-    return;
-  }
-
-  // Method 1: Click the CC button directly (most reliable)
-  // First, move mouse to bottom toolbar area to make it visible
-  try {
-    await page.mouse.move(640, 680);
-    await page.waitForTimeout(1000);
-
-    const ccButton = page
-      .locator(
-        'button[aria-label*="Turn on captions" i], ' +
-          'button[aria-label*="captions" i][aria-pressed="false"], ' +
-          'button[aria-label*="captions (c)" i]',
-      )
-      .first();
-    if (await ccButton.isVisible({ timeout: 3000 })) {
-      await ccButton.click();
-      await page.waitForTimeout(2000);
-      if (await checkCaptions()) {
-        console.log("  Captions enabled (clicked CC button)");
-        return;
-      }
-    }
-  } catch {
-    // Button not found, try keyboard shortcuts
-  }
-
-  // Method 2: press 'c' — Google Meet caption shortcut
-  await page.keyboard.press("c");
-  await page.waitForTimeout(2000);
-  if (await checkCaptions()) {
-    console.log("  Captions enabled (pressed 'c')");
-    return;
-  }
-
-  // Method 3: Shift+C — retry up to 10 times (RecallAI approach)
-  for (let i = 0; i < 10; i++) {
-    await page.keyboard.press("Shift+c");
-    await page.waitForTimeout(1000);
-    if (await checkCaptions()) {
-      console.log(`  Captions enabled (Shift+C, attempt ${i + 1})`);
-      return;
-    }
-  }
-
-  // Method 4: Click the "more options" (⋮) menu and look for captions option
-  try {
-    const moreBtn = page
-      .locator('button[aria-label*="more options" i], button[aria-label*="More actions" i]')
-      .first();
-    if (await moreBtn.isVisible({ timeout: 2000 })) {
-      await moreBtn.click();
-      await page.waitForTimeout(1000);
-      const captionsMenuItem = page
-        .locator('li:has-text("Captions"), [role="menuitem"]:has-text("Captions")')
-        .first();
-      if (await captionsMenuItem.isVisible({ timeout: 2000 })) {
-        await captionsMenuItem.click();
-        await page.waitForTimeout(2000);
-        if (await checkCaptions()) {
-          console.log("  Captions enabled (via More Options menu)");
-          return;
-        }
-      } else {
-        // Close menu if captions item not found
-        await page.keyboard.press("Escape");
-      }
-    }
-  } catch {
-    // Menu approach failed
-  }
-
-  // Method 5: Try the CC icon in the bottom bar by index (toolbar buttons)
-  try {
-    await page.mouse.move(640, 680);
-    await page.waitForTimeout(500);
-    // The CC button often has a specific icon — try matching by the closed_caption icon
-    const ccByIcon = page
-      .locator(
-        'button:has([data-icon="closed_caption"]), button:has([data-icon="closed_caption_off"])',
-      )
-      .first();
-    if (await ccByIcon.isVisible({ timeout: 2000 })) {
-      await ccByIcon.click();
-      await page.waitForTimeout(2000);
-      if (await checkCaptions()) {
-        console.log("  Captions enabled (clicked CC icon)");
-        return;
-      }
-    }
-  } catch {
-    // Icon not found
-  }
-
-  console.log("  WARNING: Could not verify captions are on — capture may not work");
-}
-
-/**
- * Caption observer script — injected into the browser context as a string
- * (avoids tsx/esbuild __name transformation issues).
- *
- * Uses the Recall.ai approach:
- * - MutationObserver watches for addedNodes + characterData changes
- * - Speaker name extracted from .NWpY1d / .xoMHSc badge elements
- * - Caption text = element text minus speaker badge text
- * - Calls window.__openutter_onCaption(speaker, text) which bridges to Node.js
- *   via page.exposeFunction
- *
- * Ref: https://www.recall.ai/blog/how-i-built-an-in-house-google-meet-bot
- */
-
-// ── Audio capture mode (PulseAudio + ffmpeg + Soniox) ──────────────────
 
 /**
  * Set up PulseAudio virtual sink and start ffmpeg recording of browser audio.
@@ -1039,233 +701,7 @@ async function transcribeWithSoniox(audioPath: string, verbose: boolean): Promis
 }
 
 
-const CAPTION_OBSERVER_SCRIPT = `
-(function() {
-  var BADGE_SEL = ".NWpY1d, .xoMHSc";
-  var captionContainer = null;
 
-  var getSpeaker = function(node) {
-    if (!node || !node.querySelector) return "";
-    var badge = node.querySelector(BADGE_SEL);
-    return badge ? badge.textContent.trim() : "";
-  };
-
-  var getText = function(node) {
-    if (!node || !node.cloneNode) return "";
-    var clone = node.cloneNode(true);
-    // Remove speaker badge elements to get just the caption text
-    var badges = clone.querySelectorAll ? clone.querySelectorAll(BADGE_SEL) : [];
-    for (var i = 0; i < badges.length; i++) badges[i].remove();
-    // Also remove img elements (avatars)
-    var imgs = clone.querySelectorAll ? clone.querySelectorAll("img") : [];
-    for (var j = 0; j < imgs.length; j++) imgs[j].remove();
-    return clone.textContent.trim();
-  };
-
-  var send = function(node) {
-    if (!(node instanceof HTMLElement)) return;
-
-    // Walk up to find a container that has a speaker badge
-    var el = node;
-    var speaker = "";
-    for (var depth = 0; depth < 6 && el && el !== document.body; depth++) {
-      speaker = getSpeaker(el);
-      if (speaker) break;
-      el = el.parentElement;
-    }
-
-    if (!speaker || !el) return;
-
-    var text = getText(el);
-    if (!text || text.length > 500) return;
-
-    // Filter out system/UI text
-    if (/^(mic_off|videocam|call_end|more_vert|keyboard|arrow_)/i.test(text)) return;
-    if (text.indexOf("extension") !== -1 && text.indexOf("developers.google") !== -1) return;
-
-    try {
-      window.__openutter_onCaption(speaker, text);
-    } catch(e) {}
-  };
-
-  new MutationObserver(function(mutations) {
-    // Lazily find the caption container
-    if (!captionContainer || !document.contains(captionContainer)) {
-      captionContainer = document.querySelector('[aria-label="Captions"]') ||
-                         document.querySelector('[aria-live]');
-    }
-
-    for (var i = 0; i < mutations.length; i++) {
-      var m = mutations[i];
-
-      // Only process mutations inside the caption container (if found)
-      if (captionContainer && !captionContainer.contains(m.target)) continue;
-
-      // New caption elements added
-      var added = m.addedNodes;
-      for (var j = 0; j < added.length; j++) {
-        if (added[j] instanceof HTMLElement) send(added[j]);
-      }
-
-      // Live text updates (word-by-word as speech is recognized)
-      if (m.type === "characterData" && m.target && m.target.parentElement) {
-        send(m.target.parentElement);
-      }
-    }
-  }).observe(document.body, {
-    childList: true,
-    characterData: true,
-    subtree: true
-  });
-
-  console.log("[OpenUtter] Caption observer active");
-})();
-`;
-
-/**
- * Set up real-time caption capture using page.exposeFunction.
- * Captions flow directly from browser → Node.js via IPC, no polling needed.
- */
-/**
- * Normalize text for comparison — lowercase, collapse whitespace, strip punctuation.
- * Google Meet changes capitalization and punctuation mid-stream (e.g. "oh," → "Oh,"),
- * so we need fuzzy matching to detect that text is still growing.
- */
-function normalizeForCompare(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9 ]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-async function setupCaptionCapture(
-  page: Page,
-  transcriptPath: string,
-  verbose: boolean,
-): Promise<{ cleanup: () => void; getLastCaptionAt: () => number }> {
-  // Track the current in-progress caption per speaker
-  const tracking = new Map<string, { text: string; ts: number; startTs: number }>();
-  // Track what was already written to disk per speaker, so we never re-write the same content.
-  // This is key: Google Meet keeps growing a single caption block for the same speaker,
-  // so after we finalize+write, the next mutation still has the full accumulated text.
-  // We need to remember what we already wrote to detect genuinely new content.
-  const lastWritten = new Map<string, string>();
-  let lastMinuteKey = "";
-  let lastCaptionAt = Date.now();
-
-  const finalizeCaption = (speaker: string, text: string, startTs: number): void => {
-    // Check if this text was already written (or is a subset of what was written)
-    const prevWritten = lastWritten.get(speaker) ?? "";
-    const normNew = normalizeForCompare(text);
-    const normPrev = normalizeForCompare(prevWritten);
-
-    if (
-      normPrev &&
-      (normNew === normPrev ||
-        normPrev.startsWith(normNew) ||
-        (normNew.startsWith(normPrev) && normNew.length - normPrev.length < 5))
-    ) {
-      // Already written this (or trivially close) — skip
-      return;
-    }
-
-    // If previous text is a prefix of new text, only write the new portion
-    // But for readability, write the full line with timestamp
-    lastWritten.set(speaker, text);
-
-    const d = new Date(startTs);
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    const ss = String(d.getSeconds()).padStart(2, "0");
-    const minuteKey = `${hh}:${mm}`;
-
-    // Add a blank line between different minutes for readability
-    let prefix = "";
-    if (lastMinuteKey && minuteKey !== lastMinuteKey) {
-      prefix = "\n";
-    }
-    lastMinuteKey = minuteKey;
-
-    const line = `[${hh}:${mm}:${ss}] ${speaker}: ${text}`;
-    try {
-      appendFileSync(transcriptPath, `${prefix}${line}\n`);
-    } catch {
-      // File write error — ignore
-    }
-    lastCaptionAt = Date.now();
-    if (verbose) {
-      console.log(`  [caption] ${line}`);
-    }
-  };
-
-  // Bridge browser → Node.js: called by the MutationObserver in the browser
-  await page.exposeFunction("__openutter_onCaption", (speaker: string, text: string) => {
-    const existing = tracking.get(speaker);
-    const prevWritten = lastWritten.get(speaker) ?? "";
-
-    // Check if this text is just a repeat of what we already wrote
-    const normNew = normalizeForCompare(text);
-    const normWritten = normalizeForCompare(prevWritten);
-    if (normWritten && (normNew === normWritten || normWritten.startsWith(normNew))) {
-      // Already wrote this or more — ignore
-      return;
-    }
-
-    if (existing) {
-      const normOld = normalizeForCompare(existing.text);
-
-      // Text is growing (speech in progress) — update without finalizing.
-      const isGrowing =
-        normNew.startsWith(normOld) ||
-        normOld.startsWith(normNew) ||
-        (normNew.length > normOld.length &&
-          normNew.includes(normOld.slice(0, Math.min(20, normOld.length))));
-
-      if (isGrowing) {
-        if (text.length >= existing.text.length) {
-          existing.text = text;
-          existing.ts = Date.now();
-        }
-        return;
-      }
-
-      // Genuinely different text — finalize the previous caption
-      finalizeCaption(speaker, existing.text, existing.startTs);
-    }
-
-    // Start tracking new caption
-    tracking.set(speaker, { text, ts: Date.now(), startTs: Date.now() });
-  });
-
-  // Periodically finalize stale captions (text unchanged for 5s = speech ended).
-  const settleInterval = setInterval(() => {
-    const now = Date.now();
-    for (const [speaker, data] of tracking.entries()) {
-      if (now - data.ts >= 5000) {
-        finalizeCaption(speaker, data.text, data.startTs);
-        tracking.delete(speaker);
-      }
-    }
-  }, 1000);
-
-  // Inject the browser-side MutationObserver
-  await page.evaluate(CAPTION_OBSERVER_SCRIPT);
-
-  return {
-    getLastCaptionAt: () => lastCaptionAt,
-    cleanup: () => {
-      clearInterval(settleInterval);
-      // Finalize any remaining captions
-      for (const [speaker, data] of tracking.entries()) {
-        finalizeCaption(speaker, data.text, data.startTs);
-      }
-      tracking.clear();
-    },
-  };
-}
-
-// ── main ───────────────────────────────────────────────────────────────
 export async function joinMeeting(opts: {
   meetUrl: string;
   headed?: boolean;
@@ -1277,8 +713,6 @@ export async function joinMeeting(opts: {
   botName?: string;
   channel?: string;
   target?: string;
-  lang?: string;
-  mode?: "captions" | "audio";
 }): Promise<{ context: BrowserContext; page: Page; reason: string }> {
   const {
     meetUrl,
@@ -1291,8 +725,6 @@ export async function joinMeeting(opts: {
     botName: botNameOpt,
     channel,
     target,
-    lang = "uk",
-    mode = "captions",
   } = opts;
 
   // Resolve bot name from config or arg
@@ -1569,87 +1001,34 @@ export async function joinMeeting(opts: {
   const transcriptPath = join(TRANSCRIPTS_DIR, `${meetingId}.txt`);
   writeFileSync(transcriptPath, "");
 
-  let cleanupFn: () => void = () => {};
-  let getLastCaptionAt: () => number = () => Date.now();
+  // ── Audio recording via PulseAudio + ffmpeg ──
+  sendMessage({ channel, target, message: `🦦 Starting audio recording (Soniox transcription)...` });
+  const { audioPath, cleanup: cleanupAudio } = await setupAudioCapture(meetingId, verbose);
 
-  if (mode === "audio") {
-    // ── Audio mode: record browser audio via PulseAudio + ffmpeg ──
-    sendMessage({ channel, target, message: `🦦 Starting audio recording (Soniox transcription)...` });
-    const { audioPath, cleanup: cleanupAudio } = await setupAudioCapture(meetingId, verbose);
-    cleanupFn = cleanupAudio;
+  sendMessage({
+    channel,
+    target,
+    message: `🦦 All set! Recording audio. Transcript will be generated after meeting ends.`,
+  });
 
-    sendMessage({
-      channel,
-      target,
-      message: `🦦 All set! Recording audio. Transcript will be generated after meeting ends.`,
-    });
+  // Wait for meeting to end
+  console.log("Waiting in meeting... (Ctrl+C to leave)");
+  const reason = await waitForMeetingEnd(currentPage, { durationMs });
+  console.log(`\nLeaving meeting: ${reason}`);
 
-    // Wait for meeting to end
-    console.log("Waiting in meeting (audio mode)... (Ctrl+C to leave)");
-    const reason = await waitForMeetingEnd(currentPage, {
-      durationMs,
-      captionIdleTimeoutMs: undefined,
-      getLastCaptionAt: undefined,
-    });
-    console.log(`\nLeaving meeting: ${reason}`);
+  // Stop recording
+  cleanupAudio();
 
-    // Stop recording
-    cleanupFn();
-
-    // Transcribe with Soniox
-    sendMessage({ channel, target, message: `🦦 Meeting ended (${reason}). Transcribing audio with Soniox...` });
-    const transcript = await transcribeWithSoniox(audioPath, verbose);
-    if (transcript) {
-      writeFileSync(transcriptPath, transcript);
-      console.log(`[OPENUTTER_TRANSCRIPT] ${transcriptPath}`);
-      sendMessage({ channel, target, message: `🦦 Transcript ready!` });
-    } else {
-      sendMessage({ channel, target, message: `🦦 Meeting ended (${reason}). Audio transcription failed.` });
-    }
+  // Transcribe with Soniox
+  sendMessage({ channel, target, message: `🦦 Meeting ended (${reason}). Transcribing audio with Soniox...` });
+  const transcript = await transcribeWithSoniox(audioPath, verbose);
+  if (transcript) {
+    writeFileSync(transcriptPath, transcript);
+    console.log(`[OPENUTTER_TRANSCRIPT] ${transcriptPath}`);
+    sendMessage({ channel, target, message: `🦦 Transcript ready!` });
   } else {
-    // ── Captions mode: use Google Meet built-in captions ──
-    sendMessage({ channel, target, message: `🦦 Enabling live captions (${lang})...` });
-    await enableCaptions(currentPage);
-    await setCaptionLanguage(currentPage, lang);
-
-    const { cleanup: cleanupCaptions, getLastCaptionAt: getCaptionTs } = await setupCaptionCapture(
-      currentPage,
-      transcriptPath,
-      verbose,
-    );
-    cleanupFn = cleanupCaptions;
-    getLastCaptionAt = getCaptionTs;
-
-    sendMessage({
-      channel,
-      target,
-      message: `🦦 All set! Listening and capturing captions (${lang}). Transcript saved when meeting ends.`,
-    });
-
-    // Wait for meeting to end
-    console.log("Waiting in meeting (captions mode)... (Ctrl+C to leave)");
-    const reason = await waitForMeetingEnd(currentPage, {
-      durationMs,
-      captionIdleTimeoutMs: 10 * 60_000,
-      getLastCaptionAt,
-    });
-    console.log(`\nLeaving meeting: ${reason}`);
-
-    // Flush remaining captions
-    cleanupFn();
-
-    if (existsSync(transcriptPath)) {
-      console.log(`[OPENUTTER_TRANSCRIPT] ${transcriptPath}`);
-      sendMessage({ channel, target, message: `🦦 Meeting ended (${reason}). Transcript saved.` });
-    } else {
-      sendMessage({
-        channel,
-        target,
-        message: `🦦 Meeting ended (${reason}). No captions were captured.`,
-      });
-    }
+    sendMessage({ channel, target, message: `🦦 Meeting ended (${reason}). Audio transcription failed.` });
   }
-
   return { context: currentContext, page: currentPage, reason };
 }
 
