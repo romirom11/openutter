@@ -109,7 +109,7 @@ function parseArgs() {
   const langIdx = args.indexOf("--lang");
   const lang = langIdx >= 0 ? args[langIdx + 1] : "uk";
   const modeIdx = args.indexOf("--mode");
-  const mode = (modeIdx >= 0 ? args[modeIdx + 1] : "captions") as "captions" | "audio";
+  const mode = (modeIdx >= 0 ? args[modeIdx + 1] : "audio") as "captions" | "audio";
 
   if (!meetUrl) {
     console.error(
